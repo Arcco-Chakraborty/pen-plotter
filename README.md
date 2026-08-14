@@ -292,6 +292,10 @@ right-click jogs the pen to that spot (pen up first).
 .venv\Scripts\python -m tests.test_gui        # builds the whole UI, no hardware needed
 ```
 
+Neither needs the controller. **`HANDOFF.md` is the cold-start guide** — setting up on a
+different machine, what the clone deliberately does not carry, and the order to bring
+things up in for a first plot.
+
 ---
 
 ## Other host software
