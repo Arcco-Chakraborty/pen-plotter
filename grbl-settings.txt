@@ -1,0 +1,85 @@
+# grbl-Mega-5X settings - 2-axis pen plotter, RAMPS 1.4, GT2 belt + 20T pulleys
+# Push with:  .\grbl.ps1 -File .\grbl-settings.txt
+# Lines starting with # are stripped by grbl.ps1 and never reach the controller.
+
+# --- pulse / driver -----------------------------------------------------------
+$0=10          # step pulse, us
+$1=255         # ALWAYS keep steppers energised. A pen gantry that de-energises
+               # sags and loses registration between segments. 255 = never idle.
+$2=0           # step port invert mask
+$3=0           # direction invert mask. Bits: X=1, Y=2, both=3.
+               # VERIFIED 0 on this machine AFTER the X/Y motor connectors were
+               # swapped into their correct slots. An earlier $3=2 was measured
+               # while the cables were still crossed, so it applied to the wrong
+               # axis - re-check direction any time the motor wiring changes.
+$4=0           # step enable invert - flip to 1 if motors stay dead or run hot
+$5=0           # limit pin invert - 0 is correct for NO switches to GND
+$6=0           # probe pin invert
+
+# --- reporting ----------------------------------------------------------------
+$10=1          # status report mask (MPos) - what GRBL-Plotter expects
+$11=0.010      # junction deviation, mm. Tighter than the 0.020 milling default:
+               # crisper corners, and a pen has no cutting load to smooth them.
+$12=0.002      # arc tolerance, mm
+$13=0          # report in mm
+
+# --- limits / homing ----------------------------------------------------------
+# Shipped OFF so the machine is drivable before endstops are fitted. Once X-min
+# and Y-min switches are wired, set $22=1, then $20=1, and correct $130/$131.
+# Order matters: $20 cannot be enabled while $22=0.
+$20=0          # soft limits
+$21=0          # hard limits
+$22=0          # homing cycle
+$23=0          # homing direction invert mask
+$24=100.000    # homing feed (slow pass), mm/min
+$25=1500.000   # homing seek (fast pass), mm/min
+$26=250        # homing debounce, ms
+$27=2.000      # homing pull-off, mm
+
+# --- pen servo (spindle PWM retimed to 50 Hz RC on D6) -------------------------
+# S maps linearly onto the 1.0-2.0 ms pulse band:
+#   S0 = 1.0 ms   S500 = 1.5 ms (centre)   S1000 = 2.0 ms
+# Resolution is 2 timer ticks (1 us) per S unit.
+$30=1000       # max "rpm" = top of the servo range. Do not change without
+               # re-deriving the pen up/down S values.
+$31=0          # min "rpm" = bottom of the servo range
+$32=0          # LASER MODE OFF - CRITICAL. Laser mode cuts spindle output during
+               # G0 rapids, which would drop the pen on every travel move.
+
+# --- geometry -----------------------------------------------------------------
+# VERIFIED on hardware. Requires ALL THREE microstep jumpers fitted under BOTH
+# driver sockets = 1/32 microstepping on DRV8825.
+#
+#   Leadshine 42CM08, 1.8 deg  = 200 full steps/rev
+#   GT2 2 mm belt, 20T pulley  = 40 mm travel/rev
+#   full stepping              = 200 / 40  =   5 steps/mm
+#   1/32 microstepping         =   5 * 32  = 160 steps/mm
+#
+# HISTORY: the jumpers were originally missing, so the machine ran full-step at
+# 5 steps/mm while grbl was told 160 - every move overshot by 32x and drove the
+# gantry into its end stops. If moves ever go wildly long again, check the
+# jumpers FIRST; that is the 32x, not belt slip and not torque.
+#
+# Re-check any time:  jog a known distance in jogpad.ps1, measure, press Compute.
+#   moved 50 mm  -> correct
+#   moved 100 mm -> on 1/16, set these to 80
+#   moved 1600mm -> jumpers missing again (full step)
+$100=160.000   # X steps/mm
+$101=160.000   # Y steps/mm
+$102=160.000   # Z steps/mm (no motor fitted - dummy axis)
+
+# --- speed / acceleration -----------------------------------------------------
+$110=4000.000  # X max rate, mm/min (66 mm/s = 10,600 steps/s at 160 steps/mm,
+$111=4000.000  # Y max rate, mm/min  comfortably under grbl's ~30 kHz AVR ceiling)
+$112=500.000   # Z max rate, mm/min
+$120=300.000   # X accel, mm/s^2 - conservative. Raise only after a test plot
+$121=300.000   # Y accel, mm/s^2   shows no skipped steps (closed shapes must close)
+$122=50.000    # Z accel, mm/s^2
+$130=210.000   # X max travel, mm - A4 PORTRAIT, not the 400x400 frame. Plots are
+$131=297.000   # Y max travel, mm   limited to A4 with the long side on Y, so the
+               # declared travel matches the paper rather than the gantry.
+               # Note: grbl cannot ENFORCE this until endstops exist and $22/$20
+               # can be turned on - until then it only feeds the work-area box
+               # drawn in GRBL-Plotter. Real fitting happens in a4prep.ps1, which
+               # scales and auto-orients each SVG to 210 x 297 before import.
+$132=10.000    # Z max travel, mm
