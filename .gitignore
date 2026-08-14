@@ -22,6 +22,16 @@ firmware/.git.disabled/
 *.o
 firmware/build/
 
+# Written by plot.ps1 at runtime. Both describe THIS machine and THIS sheet -
+# the paper frame is only meaningful until the board is reset, so committing it
+# would hand the next person a calibration that is already wrong.
+plotter-config.json
+paper-frame.json
+
+# Python bytecode
+__pycache__/
+*.pyc
+
 # Editor / OS noise
 .vscode/
 Thumbs.db

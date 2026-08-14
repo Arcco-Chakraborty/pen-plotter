@@ -24,15 +24,19 @@ Motors: **Leadshine 42CM08** — NEMA 17, 60 mm, **1.8°** (200 steps/rev), 0.8 
 
 | File | What it is |
 |---|---|
+| `plot.ps1` | **The plotter console** — `.\plot.ps1`. Probe the sheet, drop in an SVG or G-code, plot it. See below. |
+| `plotter/` | Python package behind the console |
+| `tests/` | Headless checks for the geometry, the frame maths and both importers |
 | `firmware/` | grbl-Mega-5X, patched for a servo pen (all edits marked `[PEN PLOTTER]`) |
 | `build.ps1` | `.\build.ps1 -Upload -Port COM11` — recompile + reflash |
-| `jogpad.ps1` | **GUI jog pendant** — live position, jog buttons, steps/mm calibrator, pen slider |
+| `jogpad.ps1` | Older GUI jog pendant — superseded by `plot.ps1`, kept for steps/mm calibration |
 | `jog.ps1` | Command-line jog. `.\jog.ps1 -Move 'X10'`, `.\jog.ps1 -Stop` |
 | `calibrate.ps1` | Fix steps/mm from a measured move |
 | `grbl.ps1` | Serial console. `.\grbl.ps1 -Command '$$'` |
 | `grbl-settings.txt` | The `$` settings, annotated. `.\grbl.ps1 -File .\grbl-settings.txt` |
 | `pen-tune.ps1` | Sweeps the servo so you can read off pen up/down values |
 | `pen.toml` | vpype-gcode profile (emits no Z words — pen is pure `M3 S`) |
+| `a4prep.ps1`, `stream.ps1` | Batch SVG-to-A4 and a line-at-a-time streamer. The console does both; these stay for scripting. |
 | `tools/` | Portable arduino-cli + AVR core. Nothing installed system-wide. |
 
 ---
@@ -206,11 +210,91 @@ stepper ISR rather than using interrupts, because RAMPS endstops are spread acro
 E, J and D. It measurably degrades step performance. Upstream's own recommendation is soft
 limits with correct travel lengths: home once at startup, then rely on `$20=1`.
 
-**7. Then plot real artwork.**
+**7. Then plot real artwork** — `.\plot.ps1`, and see "The plotter console" below.
 
 ---
 
-## Host software
+## The plotter console
+
+```powershell
+.\plot.ps1
+```
+
+One window: jogging, sheet probing, artwork placement, preview and streaming. It exists
+because this machine has **no endstops** — machine zero lives in RAM and moves every time
+the board resets, so "plot at X=20, Y=20" means nothing on its own. Instead you tell the
+machine where the paper is, and everything is placed relative to that.
+
+### The idea
+
+You jog the pen tip to the physical corners of the sheet and capture each one. Three
+corners define an affine map from paper millimetres to machine millimetres, and that map
+absorbs, in one step, the three things that are always slightly wrong:
+
+| What's wrong | What the fit does about it |
+|---|---|
+| The sheet is never square to the gantry | recovers its rotation |
+| The gantry itself is never exactly square | recovers the skew between the axes |
+| steps/mm is a percent or two out | scales to the corners you actually touched |
+
+That last one is the useful part. **The drawing lands inside the corners you probed even
+when the machine's absolute scale is wrong**, because the fit is to measured positions,
+not to a nominal 210 × 297. The Paper tab still reports the scale error it implied and the
+`$100`/`$101` those numbers suggest — worth fixing eventually, but it will not spoil a
+plot in the meantime.
+
+A fourth corner is optional and is used as a check: the reported *worst corner miss* is
+your mis-click detector. Under about 0.5 mm is a good frame.
+
+### Working through it
+
+1. **Machine tab** — connect, jog, and set the pen. Tune the servo with the slider, then
+   press *use as UP value* / *use as DOWN value* rather than copying numbers by hand.
+2. **Paper tab** — pick the sheet size, jog the nib over each corner, press *Capture*.
+   Read the fit report.
+3. **Artwork tab** — open an SVG or a G-code file. It is scaled, auto-oriented and
+   centred inside the margin; the fit mode, rotation, anchor and nudge are all live and
+   the preview updates as you change them.
+4. **Plot tab** — *Outline the sheet* first. It traces the border with the pen up, so a
+   mis-clicked corner costs nothing. Then **START PLOT**.
+
+The preview is in machine coordinates: probed corners, margin box, travel envelope, the
+travel moves, and a live crosshair following the pen. Wheel zooms, drag pans,
+right-click jogs the pen to that spot (pen up first).
+
+### Things worth knowing
+
+- **Re-anchor after a power cycle.** The board's zero moves, the sheet does not — so the
+  frame is off by a pure translation. Re-probe one corner and press *Re-anchor*; there is
+  no need to redo the calibration. The same applies after any soft reset or ALARM, which
+  is why both are called out in the log.
+- **Pause at pen-up, not Hold.** *Hold* is a grbl feed hold: motion stops instantly with
+  the nib still on the paper, which blots if you leave it. *Pause at pen-up* stops feeding
+  at the next gap between strokes and lets the buffer drain, so the pen is in the air.
+  Use it for ink refills and pen changes.
+- **Jobs stream with character counting**, not send-and-wait-for-ok. Waiting per line
+  drains grbl's planner between segments, so the machine decelerates at every point of
+  every curve — slow, and it dwells long enough to blot at each stop.
+- **The job header zeroes the G54 offset** (`G10 L2 P1 X0 Y0 Z0`) and cancels `G92`, so
+  work coordinates equal machine coordinates. The paper frame is the coordinate system
+  now; a stale work offset silently sliding the drawing across the sheet is exactly the
+  failure this is meant to remove.
+- **G-code import infers the pen.** Which `S` means "down" is not standardised, so
+  whichever spindle state does the G1 work rather than the G0 travel is taken as the one
+  touching the paper. It re-fits imported G-code to the sheet like any other artwork; the
+  arcs are flattened on the way in.
+- **The travel envelope is the only guard against driving into the frame.** With no
+  endstops, grbl's own soft limits need homing it cannot do. A job reaching outside the
+  box is refused, and the confirmation dialog tells you where it went.
+
+```powershell
+.venv\Scripts\python -m tests.test_pipeline   # geometry, frame maths, importers, emitter
+.venv\Scripts\python -m tests.test_gui        # builds the whole UI, no hardware needed
+```
+
+---
+
+## Other host software
 
 **GRBL-Plotter** — https://grbl-plotter.de — Windows, free. SVG/DXF import, toolpath and
 streaming in one app. Setup → Pen up/down:
